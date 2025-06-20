@@ -6,15 +6,15 @@ FastAPI 기반 에세이 자동 평가 API. LangGraph를 통해 평가 파이프
 
 ## 실행 환경 구성
 
-### Prerequisites
-- Docker
-- Git
+
 
 ### Build & Run
 1.  **Repository Clone**
     
-    """git clone <YOUR_GIT_REPOSITORY_URL>
-    cd essay-evaluation-api"""
+    ```bash
+    git clone https://github.com/Big-Shu-Nim/essay_eval
+    cd essay_eval
+    ```
     
 
 2.  **Environment Variables**
@@ -43,6 +43,7 @@ API는 `http://localhost:8000/v1/essay-eval` 엔드포인트에 `POST` 요청을
 `curl`을 사용한 요청 예시는 다음과 같음.
 
 ```bash
+
 curl -X 'POST' \
   'http://localhost:8000/v1/essay-eval' \
   -H 'accept: application/json' \
@@ -52,15 +53,10 @@ curl -X 'POST' \
   "topic_prompt": "Describe your dream vacation.",
   "submit_text": "I want to go to the beach. The weather is warm and I can swim in the sea. It will be a lot of fun because I like summer."
 }'
-Use code with caution.
-Markdown
-요청 바디 (Request Body)
-필드명	타입	필수	설명
-level_group	str	Yes	평가 목표 레벨. basic, intermediate, advanced, expert 중 하나. (대소문자 무관)
-topic_prompt	str	Yes	에세이의 원본 주제.
+```
 
 
-## 아키텍처 및 설계 결정
+### 아키텍처 및 설계 결정
 
 LLM의 비결정성을 제어하고, 도메인 특화 규칙을 강제하기 위해 LangGraph 기반의 상태 머신(State Machine) 아키텍처를 채택.
 
