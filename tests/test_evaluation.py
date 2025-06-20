@@ -1,208 +1,155 @@
-# tests/test_evaluation.py
-
 import pytest
-import asyncio
 from httpx import AsyncClient
 from pytest_mock import MockerFixture
 
-# 테스트에 필요한 스키마와 서비스 함수를 임포트
-from app.api.v1.schemas import EssayEvaluationRequest, RubricEvaluationOutput, CorrectionDetail, EvaluationResultItem
+# 테스트에 필요한 모든 모델과 서비스 함수를 임포트합니다.
+from app.api.v1.schemas import EssayEvaluationRequest, RubricEvaluationOutput, EvaluationResultItem, CorrectionDetail
 from app.services import evaluation_service
 
-# 모든 테스트를 비동기로 실행하도록 마킹
+# 모든 테스트를 비동기로 실행하도록 설정합니다.
 pytestmark = pytest.mark.asyncio
 
-# --- Fixtures: 테스트 데이터 및 모의 객체 설정 ---
+# --- Fixtures: 테스트에 필요한 데이터와 모의 객체를 미리 만들어 둡니다. ---
 
 @pytest.fixture
-def valid_request_data() -> dict:
-    """테스트에 사용할 유효한 API 요청 데이터"""
-    return {
-        "level_group": "Intermediate",
-        "topic_prompt": "Describe your dream vacation.",
-        "submit_text": "I want to go to the beach. It is very fun and I can swim."
-    }
+def valid_request() -> EssayEvaluationRequest:
+    """테스트에 사용할 유효한 EssayEvaluationRequest 객체를 생성합니다."""
+    return EssayEvaluationRequest(
+        level_group="intermediate",
+        topic_prompt="Describe your dream vacation.",
+        submit_text="I want to go to the beach. It is a very good place."
+    )
 
 @pytest.fixture
 def mock_llm_output() -> RubricEvaluationOutput:
-    """LLM 서비스가 반환할 성공적인 모의(mock) 응답 객체"""
+    """_run_single_evaluation 내부의 LLM 호출이 반환할 모의 RubricEvaluationOutput 객체."""
     return RubricEvaluationOutput(
         score=2,
-        corrections=[
-            CorrectionDetail(highlight="I want to go", issue="Good sentence", correction="I want to go")
-        ],
-        feedback="This is a mocked feedback. Great job!"
+        corrections=[CorrectionDetail(highlight="I want to go", issue="A minor issue.", correction="I would like to go")],
+        feedback="This is a mocked feedback."
     )
 
 @pytest.fixture
 def mock_evaluation_result_item(mock_llm_output: RubricEvaluationOutput) -> EvaluationResultItem:
-    """evaluate_single_rubric 함수가 반환할 모의 결과 아이템"""
+    """_run_single_evaluation 함수가 반환할 모의 EvaluationResultItem 객체."""
     return EvaluationResultItem(
-        rubric_item="introduction",
+        rubric_item="introduction", # 기본값으로 introduction 설정
         score=mock_llm_output.score,
         corrections=mock_llm_output.corrections,
         feedback=mock_llm_output.feedback
     )
 
-# --- Service Layer Tests: evaluation_service.py 테스트 ---
+# --- Service Layer & LangGraph Node Tests ---
 
-async def test_evaluate_single_rubric_service(mocker: MockerFixture, mock_llm_output: RubricEvaluationOutput):
-    """
-    'evaluate_single_rubric' 서비스 함수 단위 테스트
-    """
-    # LLM 호출 함수를 모킹
-    mock_get_structured_eval = mocker.patch(
-        'app.services.evaluation_service.get_structured_evaluation',
-        return_value=mock_llm_output
-    )
+async def test_preprocess_node_success(valid_request: EssayEvaluationRequest):
+    """LangGraph: preprocess_text 노드가 성공적으로 작동하는지 테스트합니다."""
+    initial_state = {"request": valid_request}
+    result_state = await evaluation_service.preprocess_text(initial_state)
     
-    request = EssayEvaluationRequest(
-        level_group="Basic",
-        topic_prompt="Test topic",
-        submit_text="Test submission."
-    )
-    
-    result = await evaluation_service.evaluate_single_rubric(request, "grammar")
-    
-    # 결과 검증
-    assert isinstance(result, EvaluationResultItem)
-    assert result.rubric_item == "grammar"
-    assert result.score == mock_llm_output.score
-    assert result.feedback == mock_llm_output.feedback
-    
-    # LLM 호출 함수가 올바른 인자와 함께 호출되었는지 확인
-    mock_get_structured_eval.assert_awaited_once()
+    assert result_state["is_valid_language"] is True
+    assert result_state["word_count"] > 0
 
-async def test_evaluate_essay_service_all_success(
-    mocker: MockerFixture,
-    mock_evaluation_result_item: EvaluationResultItem
-):
-    """
-    'evaluate_essay' 서비스 함수가 모든 항목을 성공적으로 평가하는 경우 테스트
-    """
-    # evaluate_single_rubric 함수 자체를 모킹하여 병렬 처리 로직에 집중
-    mock_single_rubric_eval = mocker.patch(
-        'app.services.evaluation_service.evaluate_single_rubric',
+@pytest.mark.parametrize("text, expected_msg, expected_type", [
+    
+      ("", "Submission text cannot be empty.", "validation_error"),
+    ("이것은 한글입니다.", "Please write in English. Only English, numbers, and basic punctuation are allowed.", "invalid_language"),
+])
+async def test_preprocess_node_failures(text: str, expected_msg: str, expected_type: str):
+    """LangGraph: preprocess_text 노드가 다양한 실패 케이스를 잘 처리하는지 테스트합니다."""
+    request = EssayEvaluationRequest(level_group="basic", topic_prompt="t", submit_text=text)
+    initial_state = {"request": request}
+    result_state = await evaluation_service.preprocess_text(initial_state)
+    
+    assert result_state["is_valid_language"] is False
+    assert result_state["error_message"] == expected_msg
+    assert result_state["error_type"] == expected_type
+
+async def test_evaluate_structure_node(mocker: MockerFixture, valid_request: EssayEvaluationRequest, mock_evaluation_result_item: EvaluationResultItem):
+    """LangGraph: evaluate_structure_sequentially 노드가 올바르게 작동하는지 테스트합니다."""
+    # _run_single_evaluation 함수를 모킹합니다. 이 함수는 EvaluationResultItem을 반환합니다.
+    mocker.patch(
+        "app.services.evaluation_service._run_single_evaluation", 
         return_value=mock_evaluation_result_item
     )
-    
-    request = EssayEvaluationRequest.model_validate({
-        "level_group": "Advanced",
-        "topic_prompt": "Test",
-        "submit_text": "This is a test essay for coverage."
-    })
-    
-    results = await evaluation_service.evaluate_essay(request)
-    
-    # 결과 검증
-    assert len(results) == 4  # 4개의 루브릭 항목
-    assert all(isinstance(res, EvaluationResultItem) for res in results)
-    assert mock_single_rubric_eval.await_count == 4 # 4번 호출되었는지 확인
-
-async def test_evaluate_essay_service_partial_failure(
-    mocker: MockerFixture,
-    mock_evaluation_result_item: EvaluationResultItem
-):
-    """
-    'evaluate_essay' 서비스 함수에서 일부 항목 평가가 실패하는 경우 테스트
-    - asyncio.gather의 return_exceptions=True 로직을 커버하기 위함
-    """
-    # 2번은 성공, 2번은 실패하도록 side_effect 설정
-    mock_single_rubric_eval = mocker.patch(
-        'app.services.evaluation_service.evaluate_single_rubric',
-        side_effect=[
-            mock_evaluation_result_item,
-            Exception("LLM Timeout for Body"),
-            mock_evaluation_result_item,
-            Exception("LLM Error for Grammar")
-        ]
-    )
-    
-    request = EssayEvaluationRequest.parse_obj({
-        "level_group": "Expert",
-        "topic_prompt": "Test",
-        "submit_text": "This is another test essay."
-    })
-    
-    results = await evaluation_service.evaluate_essay(request)
-    
-    # 결과 검증
-    assert len(results) == 2  # 성공한 2개의 결과만 리스트에 포함됨
-    assert all(isinstance(res, EvaluationResultItem) for res in results)
-    assert mock_single_rubric_eval.await_count == 4
-
-# --- API Layer Tests: evaluation.py 엔드포인트 테스트 ---
-
-async def test_api_evaluate_essay_success(
-    client: AsyncClient,
-    mocker: MockerFixture,
-    valid_request_data: dict,
-    mock_evaluation_result_item: EvaluationResultItem
-):
-    """
-    API 엔드포인트 성공 케이스 (/v1/essay-eval)
-    """
-    # 서비스 레이어를 모킹하여 API 레이어의 동작에만 집중
+    # 키워드 분석 함수도 모킹합니다.
     mocker.patch(
-        'app.services.evaluation_service.evaluate_essay',
-        return_value=[mock_evaluation_result_item] * 4
+        "app.services.evaluation_service.analyze_for_core_issue",
+        return_value=False # 이 테스트에서는 핵심 이슈가 없다고 가정
     )
     
-    response = await client.post("/v1/essay-eval", json=valid_request_data)
+    initial_state = {"request": valid_request}
+    result_state = await evaluation_service.evaluate_structure_sequentially(initial_state)
+    
+    assert "introduction_eval" in result_state
+    assert result_state["introduction_eval"].rubric_item == "introduction"
+    assert "body_eval" in result_state
+    assert "conclusion_eval" in result_state
+    assert result_state["intro_has_core_issue"] is False
+
+async def test_post_evaluate_node_with_adjustments(mock_evaluation_result_item: EvaluationResultItem):
+    """LangGraph: post_evaluate_and_synthesize 노드의 점수 조정 로직을 상세히 테스트합니다."""
+    advanced_request = EssayEvaluationRequest(level_group="advanced", topic_prompt="t", submit_text="short text")
+    
+    # 시나리오: Advanced 레벨인데 글자 수가 부족하고, Body에는 핵심 이슈가 있었던 경우
+    initial_state = {
+        "request": advanced_request,
+        "word_count": 50, # 150단어 미만으로 설정
+        "introduction_eval": mock_evaluation_result_item.model_copy(update={"score": 2, "rubric_item": "introduction"}),
+        "body_eval": mock_evaluation_result_item.model_copy(update={"score": 2, "rubric_item": "body"}),
+        "conclusion_eval": mock_evaluation_result_item.model_copy(update={"score": 1, "rubric_item": "conclusion"}),
+        "grammar_eval": mock_evaluation_result_item.model_copy(update={"score": 2, "rubric_item": "grammar"}),
+        "intro_has_core_issue": False,
+        "body_has_core_issue": True, # Body에 핵심 이슈가 있었다고 가정
+        "conclusion_has_core_issue": False,
+    }
+
+    result_state = await evaluation_service.post_evaluate_and_synthesize(initial_state)
+    final_results = result_state["final_results"]
+
+    # 각 항목의 최종 점수 확인
+    scores = {item.rubric_item: item.score for item in final_results}
+    assert scores["introduction"] == 1 # 길이 페널티로 2점에서 1점으로 감점
+    assert scores["body"] == 0         # 핵심 이슈(1점 감점) + 길이 페널티(1점 감점)로 2점에서 0점으로 감점
+    assert scores["conclusion"] == 0   # 길이 페널티로 1점에서 0점으로 감점
+    assert scores["grammar"] == 2      # 문법은 페널티 없음
+
+# --- API Layer Tests ---
+
+async def test_api_full_flow_success(client: AsyncClient, mocker: MockerFixture, mock_evaluation_result_item: EvaluationResultItem):
+    """API 엔드포인트의 전체 성공 흐름을 테스트하여 커버리지를 높입니다."""
+    # 서비스 로직의 가장 깊은 부분인 LLM 호출(_run_single_evaluation)만 모킹합니다.
+    mocker.patch("app.services.evaluation_service._run_single_evaluation", return_value=mock_evaluation_result_item)
+    # 키워드 분석도 모킹하여 예측 가능하게 만듭니다.
+    mocker.patch("app.services.evaluation_service.analyze_for_core_issue", return_value=False)
+    
+    request_data = {"level_group": "Intermediate", "topic_prompt": "A topic", "submit_text": "A valid English text."}
+    
+    response = await client.post("/v1/essay-eval", json=request_data)
     
     assert response.status_code == 200
     response_json = response.json()
-    assert isinstance(response_json, list)
     assert len(response_json) == 4
-    assert response_json[0]['rubric_item'] == 'introduction'
-    assert response_json[0]['score'] == 2
+    assert response_json[0]["score"] == 2 # 페널티가 없으므로 2점
 
-async def test_api_evaluate_essay_service_exception(
-    client: AsyncClient,
-    mocker: MockerFixture,
-    valid_request_data: dict
-):
-    """
-    API 호출 시 서비스 레이어에서 처리되지 않은 예외가 발생하는 경우
-    """
-    mocker.patch(
-        'app.services.evaluation_service.evaluate_essay',
-        side_effect=Exception("A critical service error occurred")
-    )
-    
-    response = await client.post("/v1/essay-eval", json=valid_request_data)
-    
-    assert response.status_code == 500
-    assert response.json() == {"detail": "An unexpected error occurred during the evaluation process."}
-
-@pytest.mark.parametrize("invalid_payload, expected_detail_part", [
-    (
-        {"topic_prompt": "A", "submit_text": "B"}, # level_group 누락
-        "'level_group' is a required field"
-    ),
-    (
-        {"level_group": "Basic", "submit_text": "B"}, # topic_prompt 누락
-        "'topic_prompt' is a required field"
-    ),
-    (
-        {"level_group": "Basic", "topic_prompt": "A"}, # submit_text 누락
-        "'submit_text' is a required field"
-    ),
-    (
-        {"level_group": 123, "topic_prompt": "A", "submit_text": "B"}, # 잘못된 타입
-        "Input should be a valid string"
-    )
-])
-async def test_api_invalid_payload(
-    client: AsyncClient,
-    invalid_payload: dict,
-    expected_detail_part: str
-):
-    """
-    잘못된 요청 페이로드에 대해 422 에러를 반환하는지 파라미터화 테스트
-    """
-    response = await client.post("/v1/essay-eval", json=invalid_payload)
+async def test_api_invalid_language_error(client: AsyncClient):
+    """API: 유효하지 않은 언어 입력 시 422 에러를 잘 처리하는지 테스트합니다."""
+    request_data = {"level_group": "basic", "topic_prompt": "topic", "submit_text": "이것은 한글입니다."}
+    response = await client.post("/v1/essay-eval", json=request_data)
     
     assert response.status_code == 422
-    # 에러 메시지에 특정 문자열이 포함되어 있는지 확인하여 더 정확한 테스트
-    assert expected_detail_part in str(response.json())
+    assert "Please write in English" in response.json()["detail"]
+
+@pytest.mark.parametrize("key_to_remove", [
+    "level_group",
+    "submit_text",
+    "topic_prompt",
+])
+async def test_api_missing_fields(client: AsyncClient, key_to_remove: str):
+    """API: 필수 필드 누락 시 FastAPI가 422 에러를 잘 반환하는지 테스트합니다."""
+    payload = {"level_group": "basic", "topic_prompt": "a topic", "submit_text": "a text"}
+    del payload[key_to_remove]
+    
+    response = await client.post("/v1/essay-eval", json=payload)
+    
+    assert response.status_code == 422
+    assert "Field required" in str(response.json())

@@ -6,18 +6,18 @@ from app.core.config import settings
 from app.api.v1.schemas import RubricEvaluationOutput
 
 # 1. LangChain의 AzureChatOpenAI 클라이언트 초기화
-# LangSmith 환경 변수가 설정되어 있으면 자동으로 모든 호출이 추적됩니다.
+# LangSmith 환경 변수가 설정되어 있으면 자동으로 모든 호출이 추적
 llm = AzureChatOpenAI(
     azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
     api_key=settings.AZURE_OPENAI_API_KEY,
     azure_deployment=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
     api_version=settings.AZURE_OPENAI_API_VERSION,
-    temperature=0.1,
+    temperature=0,
     max_retries=2,
 )
 
 # 2. 구조화된 출력을 위한 LLM 체인 생성
-# .with_structured_output() 메서드는 내부적으로 response_format을 사용합니다.
+# .with_structured_output() 메서드는 내부적으로 response_format을 사용
 # 2024-12-01-preview 버전에서는 이 기능이 지원됩니다.
 structured_llm = llm.with_structured_output(RubricEvaluationOutput)
 

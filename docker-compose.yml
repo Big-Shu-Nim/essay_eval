@@ -1,0 +1,25 @@
+# docker-compose.yml
+
+version: '3.8'
+
+services:
+
+  essay-eval-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    
+    # 컨테이너 이름 설정
+    container_name: essay-eval-api
+
+    # .env 파일의 환경 변수를 컨테이너 안으로 전달
+    env_file:
+      - .env
+
+    # 포트 매핑: <호스트 PC 포트>:<컨테이너 포트>
+    # 내 PC의 8000번 포트를 컨테이너의 8000번 포트와 연결
+    ports:
+      - "8000:8000"
+
+    # 컨테이너가 비정상 종료 시 자동으로 재시작 (운영 환경에 유용)
+    restart: unless-stopped

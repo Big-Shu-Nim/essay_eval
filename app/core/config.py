@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     LANGSMITH_TRACING: str = "true"  # LangSmith 추적 활성화
     LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com" # LangSmith API 엔드포인트
     LANGSMITH_API_KEY: str              # LangSmith API 키
-    LANGSMITH_PROJECT: str = "eddie" # LangSmith 프로젝트 이름 (원하는 이름으로 변경 가능)
+    LANGSMITH_PROJECT: str = "eddie" # LangSmith 프로젝트 이름
 
     class Config:
         env_file = ".env"

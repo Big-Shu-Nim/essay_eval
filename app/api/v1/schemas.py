@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List
 
 # --- Request Schemas ---
@@ -6,6 +6,15 @@ class EssayEvaluationRequest(BaseModel):
     level_group: str = Field(..., examples=["Intermediate"], description="평가 목표 기준 레벨 (Basic, Intermediate, Advanced, Expert)")
     topic_prompt: str = Field(..., examples=["Describe your dream vacation."], description="에세이 주제")
     submit_text: str = Field(..., examples=["I want to go to..."], description="학생이 제출한 에세이 원문")
+
+    # Pydantic v2의 field_validator를 사용하여 입력값을 변환/검증
+    @field_validator('level_group')
+    @classmethod
+    def normalize_level_group(cls, v: str) -> str:
+        """level_group 값을 소문자로 변환하여 정규화합니다."""
+        if not v:
+            raise ValueError("level_group cannot be empty.")
+        return v.lower()
 
 # --- Response Schemas ---
 class CorrectionDetail(BaseModel):
