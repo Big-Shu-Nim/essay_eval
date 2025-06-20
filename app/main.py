@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from app.api.v1.endpoints import evaluation
 from app.core.config import settings
-# LangSmith 설정을 자동으로 로드하기 위해 settings를 임포트하는 것이 좋습니다.
+# LangSmith 설정을 자동으로 로드하기 위해 settings를 임포트
 _ = settings
 
 # FastAPI 애플리케이션 인스턴스 생성
@@ -14,7 +14,7 @@ app = FastAPI(
 )
 
 # /v1 경로 아래에 evaluation 라우터를 포함시킴
-# 이렇게 하면 /v1/essay-eval 경로가 활성화됩니다.
+# 이렇게 하면 /v1/essay-eval 경로가 활성화
 app.include_router(evaluation.router, prefix="/v1", tags=["Evaluation"])
 
 @app.get("/", tags=["Root"])

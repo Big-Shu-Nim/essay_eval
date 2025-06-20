@@ -19,7 +19,6 @@ venv/
 
 # Poetry
 .poetry-cache/
-poetry.lock
 
 # Pytest
 .pytest_cache/

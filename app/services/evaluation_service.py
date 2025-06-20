@@ -73,32 +73,64 @@ async def _run_single_evaluation(
 # 각 노드는 state를 입력으로 받아 처리 후, 업데이트된 state의 일부를 반환
 
 async def preprocess_text(state: EvaluationState) -> dict:
-    """노드 1: 전처리 - 길이 및 언어 유효성 검사"""
+    """
+    노드 1: 전처리 - 입력값 유효성, 길이 및 언어(90% 영어 규칙) 검사
+    """
     print("--- Executing Node: preprocess_text ---")
     request = state['request']
-    text_to_check = request.submit_text
-    
-    word_count = len(text_to_check.split())
-    
-    # 텍스트가 비어있는 경우도 언어 오류로 처리
-    if not text_to_check:
+
+    # --- 1. 입력값 유효성 검사 (기존과 동일) ---
+    if not request.level_group:
+        return {
+            "is_valid_language": False,
+            "error_message": "level_group cannot be empty. Please provide a level.",
+            "error_type": "validation_error"
+        }
+    if not request.submit_text:
         return {
             "is_valid_language": False,
             "word_count": 0,
-            "error_message": "Submission text cannot be empty.",
-            "error_type": "validation_error" # 입력값 유효성 에러
+            "error_message": "submit_text cannot be empty. Please provide an essay to evaluate.",
+            "error_type": "validation_error"
         }
-     # 영문 확인    
-    allowed_chars_pattern = re.compile(r"^[a-zA-Z0-9\s.,!?'\"()’“”—\U0001F300-\U0001FADF]+$")
+
+    # --- 2. 엑셀 특수 문자 정제 및 길이 체크 ---
+    text_to_check = request.submit_text.replace('_x000D_', '\n').strip()
     
-    if not text_to_check or not allowed_chars_pattern.match(text_to_check):
+    # 텍스트가 정제 후 비어있을 경우 처리
+    if not text_to_check:
+        return {
+            "is_valid_language": False, "word_count": 0,
+            "error_message": "submit_text cannot be empty after cleaning.",
+            "error_type": "validation_error"
+        }
+
+    word_count = len(text_to_check.split())
+    total_chars = len(text_to_check)
+
+    # --- 3. 언어 체크 (90% 영어 규칙 적용) ---
+    # ASCII 범위를 벗어나는 문자(주로 비영어권 문자, 일부 특수 기호, 이모티콘 등)의 개수를 셉니다.
+    non_ascii_chars = sum(1 for char in text_to_check if ord(char) > 127)
+    
+    # 비영어 문자의 비율을 계산합니다.
+    # total_chars가 0인 경우를 방지하기 위해 max(1, total_chars) 사용
+    non_ascii_ratio = non_ascii_chars / max(1, total_chars)
+    
+    # 비영어 문자의 비율이 10%를 초과하면(즉, 영어가 90% 미만이면) 에러 처리
+    if non_ascii_ratio > 0.1:
+        error_msg = (
+            f"The submitted text appears to be less than 90% English. "
+            f"({non_ascii_ratio:.1%} non-English characters detected). "
+            f"Please write primarily in English."
+        )
         return {
             "is_valid_language": False,
             "word_count": word_count,
-            "error_message": "Please write in English. Only English, numbers, and basic punctuation are allowed.",
+            "error_message": error_msg,
             "error_type": "invalid_language"
         }
-    
+
+    # 모든 검사를 통과한 경우
     return {
         "is_valid_language": True,
         "word_count": word_count
@@ -292,7 +324,7 @@ async def evaluate_essay_with_graph(request: EssayEvaluationRequest) -> List[Eva
             error_type = final_state.get("error_type")
             error_message = final_state.get("error_message")
 
-            if error_type == "invalid_language": # 언어관련 처리리
+            if error_type == "invalid_language": # 언어관련 처리
                 raise HTTPException(status_code=422, detail=error_message)
             else:
                 # 그 외 그래프 내부에서 정의된 다른 에러들
