@@ -104,3 +104,10 @@ LLM의 비결정성을 제어하고, 도메인 특화 규칙을 강제하기 위
 app/test-> test_evluation.py로 생성했습니다. 
 
 ![py_test](visualization_reports/py_test.png)
+
+
+
+## Langsmith Trace
+개인계정이라 초대가 안되는것 같더라구요. 일단 한 인스턴스를 내역을 확인할수 있도록 링크를 남깁니다. 
+
+https://smith.langchain.com/public/1eda8330-1505-41e6-96f5-ef88adfae014/r/9868bc3b-5153-4b9f-a801-0fcbb6d71839
