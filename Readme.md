@@ -2,6 +2,77 @@
 
 FastAPI 기반 에세이 자동 평가 API. LangGraph를 통해 평가 파이프라인의 제어 흐름을 관리하고, Azure OpenAI `gpt-4o-mini`를 LLM으로 사용합니다
 
+- **출력(JSON)**
+    - 각 Rubric Item에 따라
+        - score: 해당 항목에 대한 점수
+        - corrections ( 문제 되는 부분들을 찾아서 수정 진행 )
+            - highlight: 문제가 되는 문장 탐지
+            - issue: 어떤 문제가 있는지 요약
+            - correction: 문제가 되는 문장 개선
+        - feedback: 해당 항목에 대한 전반적인 피드백
+    
+    ```json
+    [
+    	{
+    		"rubric_item": "introduction", 
+    	  "score": 2,
+    	  "corrections": [ { "highlight": "I want go", "issue": "missing to-be", "correction": "I want to go" } ],
+    	  "feedback": "Great idea! Next time add more supporting details."
+    	}, 
+    	{
+    		"rubric_item": "body", 
+    	  "score": 1,
+    	  "corrections": [ { "highlight": "I want go", "issue": "missing to-be", "correction": "I want to go" } ],
+    	  "feedback": "Great idea! Next time add more supporting details."
+    	},
+    	{
+    		"rubric_item": "conclusion", 
+    	  "score": 2,
+    	  "corrections": [ { "highlight": "I want go", "issue": "missing to-be", "correction": "I want to go" } ],
+    	  "feedback": "Great idea! Next time add more supporting details."
+    	}, 
+    	{
+    		"rubric_item": "grammar", 
+    	  "score": 0,
+    	  "corrections": [ { "highlight": "I want go", "issue": "missing to-be", "correction": "I want to go" } ],
+    	  "feedback": "Great idea! Next time add more supporting details."
+    	}
+    ]
+    ```
+    
+
+### 1-2. 평가 로직
+
+1. **Pre-Process** – 길이·언어 체크
+2. **Rubric 체인** – 서론→본론→결론(순차), 문법(병렬)
+3. **Scoring & Corrections & Feedback** 생성
+4. **Post-Evaluate** – 레벨그룹 가중치·정합성 점검
+5. **Trace 저장** – Langfuse 또는 LangSmith
+
+### 1-3. Prompt Ops
+
+- Prompt 버전을 `prompt/` 폴더에 JSON 또는 Markdown으로 관리
+- Trace(로그) 예시 스크린샷 1장 첨부(PDF 가능)
+
+---
+
+## 2. Rubric & 레벨 그룹
+
+| 항목 | 2점 | 1점 | 0점 |
+| --- | --- | --- | --- |
+| **서론** | 주제 명확, 글 방향 제시 | 주제 언급 불명확 | 서론 부재 |
+| **본론** | 주장·근거 구체 | 근거 부족 | 본론 미흡 |
+| **결론** | 요점 정리 | 정리 미흡 | 결론 부재 |
+| **문법** | 오류 없음/미미 | 일부 오류 | 잦은 오류 |
+
+| Group | 권장 길이 | 어휘 난이도(CEFR) | 핵심 포인트 |
+| --- | --- | --- | --- |
+| Basic | 50-100단어 | A1-A2 | 내용 명확성 |
+| Intermediate | 100-150단어 | B1-B2 | 근거·전개 |
+| Advanced | 150-200단어 | B2-C1 | 구조·논지 |
+| Expert | 200+단어 | C1 | 논리·설득력 |
+|  |  |  |  |
+
 ---
 
 ## 실행 환경 구성
